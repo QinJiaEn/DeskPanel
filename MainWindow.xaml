@@ -38,7 +38,7 @@
                                VerticalAlignment="Center" Margin="16,0,0,0"/>
                     <TextBlock Text="Alt+` 呼出 · Esc 隐藏 · 拖拽收纳"
                                Foreground="#AAAAAA" FontFamily="Microsoft YaHei UI" FontSize="10"
-                               VerticalAlignment="Center" Margin="110,0,0,0"/>
+                               VerticalAlignment="Center" Margin="170,0,0,0"/>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,8,0">
                         <Button x:Name="BtnCollectDesktop"
                                 Content="收纳桌面" Style="{StaticResource AccentButton}"

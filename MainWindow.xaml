@@ -33,7 +33,7 @@
             <Border Grid.Row="0" Background="#FAFAFA" CornerRadius="14,14,0,0"
                     MouseLeftButtonDown="TitleBar_MouseDown">
                 <Grid>
-                    <TextBlock Text="DeskPanel" Foreground="#0078D4"
+                    <TextBlock Text="DeskPanel · Mr.Q" Foreground="#0078D4"
                                FontFamily="Microsoft YaHei UI" FontSize="13" FontWeight="SemiBold"
                                VerticalAlignment="Center" Margin="16,0,0,0"/>
                     <TextBlock Text="Alt+` 呼出 · Esc 隐藏 · 拖拽收纳"

@@ -936,7 +936,7 @@ public partial class MainWindow : Window
         // Title
         stack.Children.Add(new TextBlock
         {
-            Text = "⚙ 设置", Foreground = new SolidColorBrush(C_TextPrimary),
+            Text = "⚙ 设置 · Mr.Q", Foreground = new SolidColorBrush(C_TextPrimary),
             FontFamily = new FontFamily("Microsoft YaHei UI"), FontSize = 16,
             FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 16)
         });

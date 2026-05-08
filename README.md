@@ -73,6 +73,8 @@ dotnet run
 | `Alt+`` ` | 呼出/隐藏面板 |
 | `Esc` | 隐藏面板 |
 
+### ps:一开始想在github上找一个来着,忘了叫啥了,就让ai写了一个,不错很强
+
 ## 📄 License
 
 MIT License

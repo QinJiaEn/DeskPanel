@@ -73,12 +73,20 @@ public partial class App : System.Windows.Application
 
     private void CreateNotifyIcon()
     {
-        var exeDir = AppDomain.CurrentDomain.BaseDirectory;
-        var iconPath = Path.Combine(exeDir, "Resources", "icon.ico");
+        // Load icon from embedded resource
+        Icon appIcon;
+        var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+        using (var stream = assembly.GetManifestResourceStream("DeskPanel.Resources.icon.ico"))
+        {
+            if (stream != null)
+                appIcon = new Icon(stream);
+            else
+                appIcon = SystemIcons.Application;
+        }
 
         _notifyIcon = new NotifyIcon
         {
-            Icon = new Icon(iconPath),
+            Icon = appIcon,
             Text = "DeskPanel - Alt+` 呼出面板",
             Visible = true
         };

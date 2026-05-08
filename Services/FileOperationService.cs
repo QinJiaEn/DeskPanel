@@ -8,11 +8,10 @@ namespace DeskPanel.Services;
 
 public static class FileOperationService
 {
-    private static readonly string StorageRoot = @"F:\DeskPanel\files";
-
     public static string GetCategoryPath(string categoryName)
     {
-        var path = Path.Combine(StorageRoot, SanitizeFolderName(categoryName));
+        var storageRoot = SettingsService.Current.StoragePath;
+        var path = Path.Combine(storageRoot, SanitizeFolderName(categoryName));
         Directory.CreateDirectory(path);
         return path;
     }

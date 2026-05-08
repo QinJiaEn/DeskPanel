@@ -198,7 +198,7 @@ public class MainViewModel : INotifyPropertyChanged
     {
         try
         {
-            var entry = FileOperationService.StoreFile(filePath, category);
+            var entry = FileOperationService.MoveFile(filePath, category);
             DataService.AddFile(entry);
             LoadData();
             StatusText = $"已添加: {entry.FileName}";

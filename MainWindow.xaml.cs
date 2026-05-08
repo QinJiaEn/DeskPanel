@@ -548,7 +548,9 @@ public partial class MainWindow : Window
         }
         stack.Children.Add(iconBorder);
 
-        var displayName = entry.FileName.Length > 14 ? entry.FileName[..11] + "..." : entry.FileName;
+        // Display name without extension
+        var nameWithoutExt = Path.GetFileNameWithoutExtension(entry.FileName);
+        var displayName = nameWithoutExt.Length > 14 ? nameWithoutExt[..11] + "..." : nameWithoutExt;
         var nameLabel = new TextBlock
         {
             Text = displayName,
@@ -574,6 +576,32 @@ public partial class MainWindow : Window
             if (e.ClickCount == 2) _vm.OpenFileCommand.Execute(entry);
         };
         card.MouseRightButtonDown += (s, e) => ShowFileContextMenu(entry, card);
+
+        // Drag out support
+        card.MouseMove += (s, e) =>
+        {
+            if (e.LeftButton == MouseButtonState.Pressed && !entry.IsMissing)
+            {
+                // Hide window to avoid blocking system dialogs
+                var wasShown = _isShown;
+                Hide();
+
+                var data = new DataObject(DataFormats.FileDrop, new[] { entry.StoredPath });
+                var result = DragDrop.DoDragDrop(card, data, DragDropEffects.Copy | DragDropEffects.Move);
+
+                // If file was moved/copied successfully, remove from list
+                if (result == DragDropEffects.Move || result == DragDropEffects.Copy)
+                {
+                    _vm.DeleteFile(entry);
+                    RenderFiles();
+                    RenderCategories();
+                }
+
+                // Restore window if it was shown before
+                if (wasShown)
+                    ShowWindow();
+            }
+        };
 
         return card;
     }
@@ -670,7 +698,9 @@ public partial class MainWindow : Window
             Margin = new Thickness(0, 0, 0, 12)
         });
 
-        var nameTb = CreateDialogTextBox(entry.FileName);
+        var ext = Path.GetExtension(entry.FileName);
+        var nameWithoutExt = Path.GetFileNameWithoutExtension(entry.FileName);
+        var nameTb = CreateDialogTextBox(nameWithoutExt);
         nameTb.SelectAll();
         stack.Children.Add(nameTb);
 
@@ -679,9 +709,11 @@ public partial class MainWindow : Window
             ("确定", () =>
             {
                 var newName = nameTb.Text.Trim();
-                if (!string.IsNullOrEmpty(newName) && newName != entry.FileName)
+                if (!string.IsNullOrEmpty(newName) && newName != nameWithoutExt)
                 {
-                    if (FileOperationService.RenameFile(entry, newName))
+                    // Append original extension
+                    var fullName = newName + ext;
+                    if (FileOperationService.RenameFile(entry, fullName))
                     {
                         DataService.UpdateFile(entry);
                         _vm.LoadData();

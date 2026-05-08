@@ -75,7 +75,7 @@ public partial class App : System.Windows.Application
     {
         _notifyIcon = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = new Icon(@"Resources\icon.ico"),
             Text = "DeskPanel - Alt+` 呼出面板",
             Visible = true
         };

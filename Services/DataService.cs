@@ -15,8 +15,7 @@ public class AppData
 
 public static class DataService
 {
-    private static readonly string AppDir = Path.GetDirectoryName(
-        System.Reflection.Assembly.GetExecutingAssembly().Location)!;
+    private static readonly string AppDir = AppContext.BaseDirectory;
     public static readonly string DataFilePath = Path.Combine(AppDir, "data.json");
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

@@ -10,12 +10,16 @@ public class HotkeyService
     private readonly IntPtr _hwnd;
     private HwndSource? _source;
     private bool _registered;
+    private int _modifiers;
+    private uint _key;
 
     public event Action? HotkeyPressed;
 
-    public HotkeyService(IntPtr hwnd)
+    public HotkeyService(IntPtr hwnd, int modifiers, uint key)
     {
         _hwnd = hwnd;
+        _modifiers = modifiers;
+        _key = key;
     }
 
     public void Register()
@@ -25,8 +29,7 @@ public class HotkeyService
         _source = HwndSource.FromHwnd(_hwnd);
         _source?.AddHook(WndProc);
 
-        // Try Alt+` first
-        bool ok = Win32.RegisterHotKey(_hwnd, 1, Win32.MOD_ALT, Win32.VK_OEM_3);
+        bool ok = Win32.RegisterHotKey(_hwnd, 1, (uint)_modifiers, _key);
         if (!ok)
         {
             // Fallback: Ctrl+Shift+A
@@ -42,6 +45,17 @@ public class HotkeyService
         Win32.UnregisterHotKey(_hwnd, 1);
         _source?.RemoveHook(WndProc);
         _registered = false;
+    }
+
+    public void ReRegister(int modifiers, uint key)
+    {
+        _modifiers = modifiers;
+        _key = key;
+        if (_registered)
+        {
+            Unregister();
+            Register();
+        }
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)

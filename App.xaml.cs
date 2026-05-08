@@ -6,8 +6,10 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Interop;
+using DeskPanel.Models;
 using DeskPanel.Native;
 using DeskPanel.Services;
+using Microsoft.Win32;
 using MessageBox = System.Windows.MessageBox;
 
 namespace DeskPanel;
@@ -31,12 +33,18 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        // Load settings
+        var settings = SettingsService.Current;
+
+        // Apply auto-start
+        ApplyAutoStart(settings.AutoStart);
+
         // Ensure storage directories exist
-        Directory.CreateDirectory(@"F:\DeskPanel\files");
+        Directory.CreateDirectory(settings.StoragePath);
         Directory.CreateDirectory(Path.GetDirectoryName(DataService.DataFilePath)!);
 
-        // Create main window (hidden initially)
-        _mainWindow = new MainWindow();
+        // Create main window with settings
+        _mainWindow = new MainWindow(settings);
         _mainWindow.Show();  // Show briefly to get HWND, then hide
         _mainWindow.Hide();
 
@@ -46,7 +54,8 @@ public partial class App : System.Windows.Application
         // Register global hotkey after window handle is available
         var helper = new WindowInteropHelper(_mainWindow);
         var hwnd = helper.EnsureHandle();
-        _hotkeyService = new HotkeyService(hwnd);
+        _hotkeyService = new HotkeyService(hwnd, settings.HotkeyModifiers, settings.HotkeyKey);
+        _mainWindow.SetHotkeyService(_hotkeyService);
         _hotkeyService.HotkeyPressed += () =>
         {
             Dispatcher.Invoke(() => _mainWindow.ToggleVisibility());
@@ -89,6 +98,20 @@ public partial class App : System.Windows.Application
             _mutex?.ReleaseMutex();
             Shutdown();
         });
+    }
+
+    private void ApplyAutoStart(bool enable)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(
+                @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", writable: true);
+            if (enable)
+                key?.SetValue("DeskPanel", Environment.ProcessPath!);
+            else
+                key?.DeleteValue("DeskPanel", throwOnMissingValue: false);
+        }
+        catch { }
     }
 
     private void OnExit(object sender, ExitEventArgs e)

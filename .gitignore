@@ -23,4 +23,5 @@ Desktop.ini
 
 # ── Runtime data (local user data, not source) ───
 data.json
+settings.json
 files/

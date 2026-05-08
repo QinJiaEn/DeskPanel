@@ -16,7 +16,7 @@
     </Window.Resources>
 
     <!-- 主容器：圆角 + 阴影 + 白色毛玻璃背景 -->
-    <Border CornerRadius="14" Background="#E8F5F5F5">
+    <Border x:Name="MainBorder" CornerRadius="14" Background="#E8F5F5F5">
         <Border.Effect>
             <DropShadowEffect BlurRadius="40" ShadowDepth="4" Opacity="0.15" Color="#000000"/>
         </Border.Effect>
@@ -44,6 +44,10 @@
                                 Content="收纳桌面" Style="{StaticResource AccentButton}"
                                 FontSize="11" Padding="10,4" Margin="0,0,8,0"
                                 Click="BtnCollectDesktop_Click" ToolTip="一键收纳桌面所有文件"/>
+                        <Button x:Name="BtnSettings"
+                                Content="&#xE713;" Style="{StaticResource IconButton}"
+                                Width="32" Height="32" FontSize="12"
+                                Click="BtnSettings_Click" ToolTip="设置"/>
                         <Button Content="&#xE10A;" Style="{StaticResource IconButton}"
                                 Width="32" Height="32" FontSize="12"
                                 Click="BtnClose_Click" ToolTip="关闭面板"/>

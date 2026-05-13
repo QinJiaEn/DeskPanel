@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Text.Json.Serialization;
 using Microsoft.Win32;
 
@@ -14,11 +16,18 @@ public class AppSettings
     public int HotkeyModifiers { get; set; } = 1; // MOD_ALT
     public uint HotkeyKey { get; set; } = 0xC0; // VK_OEM_3 (`)
     public bool AutoStart { get; set; } = false;
-    public string StoragePath { get; set; } = @"F:\DeskPanel\files\";
+    public string OpenAiKey { get; set; } = "";
+    public bool AiMode { get; set; } = false;
+    public string AiBaseUrl { get; set; } = "";
+    public string AiModel { get; set; } = "";
+    public string StoragePath { get; set; } = Path.Combine(
+        Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Desktop)) ?? @"C:\",
+        "DeskPanel", "files") + Path.DirectorySeparatorChar;
 
     // === Panel ===
     public double PanelWidth { get; set; } = 960;
     public double PanelHeight { get; set; } = 620;
+    public string BackgroundImagePath { get; set; } = "";
 
     // === Computed ===
     [JsonIgnore]

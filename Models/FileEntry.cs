@@ -13,9 +13,10 @@ public class FileEntry
     public string CategoryId { get; set; } = "";
     public DateTime AddedTime { get; set; } = DateTime.Now;
     public long FileSize { get; set; }
+    public bool IsDirectory { get; set; }
 
     [JsonIgnore]
-    public bool IsMissing => !System.IO.File.Exists(StoredPath);
+    public bool IsMissing => IsDirectory ? !System.IO.Directory.Exists(StoredPath) : !System.IO.File.Exists(StoredPath);
 
     [JsonIgnore]
     public string FileSizeDisplay => FileSize switch
@@ -27,5 +28,7 @@ public class FileEntry
     };
 
     [JsonIgnore]
-    public string Tooltip => $"文件: {FileName}\n大小: {FileSizeDisplay}\n添加: {AddedTime:yyyy-MM-dd HH:mm}\n{(IsMissing ? "⚠ 文件已丢失" : StoredPath)}";
+    public string Tooltip => IsDirectory
+        ? $"📁 文件夹: {FileName}\n添加: {AddedTime:yyyy-MM-dd HH:mm}\n{(IsMissing ? "⚠ 文件夹已丢失" : StoredPath)}"
+        : $"文件: {FileName}\n大小: {FileSizeDisplay}\n添加: {AddedTime:yyyy-MM-dd HH:mm}\n{(IsMissing ? "⚠ 文件已丢失" : StoredPath)}";
 }

@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using DeskPanel.Models;
@@ -72,6 +73,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand EditCategoryCommand { get; }
     public ICommand DeleteCategoryCommand { get; }
     public ICommand CollectDesktopCommand { get; }
+    public ICommand RestoreToDesktopCommand { get; }
     public ICommand OpenFileCommand { get; }
     public ICommand DeleteFileCommand { get; }
     public ICommand CopyPathCommand { get; }
@@ -92,7 +94,8 @@ public class MainViewModel : INotifyPropertyChanged
         {
             if (param is Category cat) DeleteCategory(cat);
         });
-        CollectDesktopCommand = new RelayCommand(_ => CollectDesktop());
+        CollectDesktopCommand = new RelayCommand(async _ => await CollectDesktopAsync());
+        RestoreToDesktopCommand = new RelayCommand(_ => RestoreToDesktop());
         OpenFileCommand = new RelayCommand(param =>
         {
             if (param is FileEntry entry) FileOperationService.OpenFile(entry);
@@ -156,40 +159,129 @@ public class MainViewModel : INotifyPropertyChanged
         LoadData();
     }
 
-    public void CollectDesktop()
+    public async Task CollectDesktopAsync()
     {
-        var cat = SelectedCategory ?? Categories.FirstOrDefault();
-        if (cat == null)
+        if (Categories.Count == 0)
         {
             System.Windows.MessageBox.Show("请先创建一个分类。", "提示",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
-        var files = DesktopCollectService.ScanDesktopFiles();
-        if (files.Count == 0)
+        var (files, dirs) = DesktopCollectService.ScanDesktopItems();
+        var totalItems = files.Count + dirs.Count;
+        if (totalItems == 0)
         {
-            System.Windows.MessageBox.Show("桌面上没有可收纳的文件。", "提示",
+            System.Windows.MessageBox.Show("桌面上没有可收纳的文件或文件夹。", "提示",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
-        var result = System.Windows.MessageBox.Show(
-            $"将在桌面上找到 {files.Count} 个文件。\n收纳到分类: {cat.Name}\n\n确认继续？",
-            "收纳桌面", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (result != MessageBoxResult.Yes) return;
+        string desc;
+        if (SelectedCategory != null)
+        {
+            desc = $"将在桌面上找到 {files.Count} 个文件、{dirs.Count} 个文件夹。\n全部收纳到分类: {SelectedCategory.Name}\n\n确认继续？";
+        }
+        else
+        {
+            desc = $"将在桌面上找到 {files.Count} 个文件、{dirs.Count} 个文件夹。\n将按类型智能分配到对应分类。\n\n确认继续？";
+        }
 
-        var collectResult = DesktopCollectService.CollectDesktopFiles(cat);
+        var msgResult = System.Windows.MessageBox.Show(
+            desc, "收纳桌面", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (msgResult != MessageBoxResult.Yes) return;
+
+        StatusText = "正在收纳...";
+
+        // Run on background thread to avoid UI freeze during AI API call
+        var cats = Categories.ToList();
+        var forced = SelectedCategory;
+        var collectResult = await System.Threading.Tasks.Task.Run(() =>
+            DesktopCollectService.SmartCollectDesktop(
+                cats,
+                forcedCategory: forced,
+                onProgress: msg => StatusText = msg));
+
         foreach (var entry in collectResult.NewEntries)
             DataService.AddFile(entry);
 
         LoadData();
-        StatusText = $"收纳完成: {collectResult.SuccessCount} 成功";
+
+        // Build summary with category breakdown
+        var summary = $"{(collectResult.UsedAi ? "[AI] " : "")}收纳完成: {collectResult.SuccessCount} 成功";
+        if (collectResult.CategoryStats.Count > 1)
+        {
+            var stats = string.Join(", ",
+                collectResult.CategoryStats.Select(kv => $"{kv.Key}:{kv.Value}个"));
+            summary += $"\n分类统计: {stats}";
+        }
+        StatusText = summary;
 
         if (collectResult.FailCount > 0)
         {
             System.Windows.MessageBox.Show(
                 $"收纳完成:\n成功: {collectResult.SuccessCount}\n失败: {collectResult.FailCount}\n\n错误:\n{string.Join("\n", collectResult.Errors.Take(5))}",
+                "结果", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+    }
+
+    public void RestoreToDesktop()
+    {
+        // Determine which files to restore
+        var itemsToRestore = SelectedCategory != null
+            ? Files.Where(f => f.CategoryId == SelectedCategory.Id).ToList()
+            : Files.ToList();
+
+        if (itemsToRestore.Count == 0)
+        {
+            System.Windows.MessageBox.Show("没有可归还的文件。", "提示",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var scopeDesc = SelectedCategory != null
+            ? $"分类 \"{SelectedCategory.Name}\" 中的 {itemsToRestore.Count} 个项目"
+            : $"全部 {itemsToRestore.Count} 个项目";
+
+        var result = System.Windows.MessageBox.Show(
+            $"将把 {scopeDesc} 归还到桌面。\n\n确认继续？",
+            "归还桌面", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (result != MessageBoxResult.Yes) return;
+
+        int successCount = 0;
+        int failCount = 0;
+        var errors = new List<string>();
+
+        foreach (var entry in itemsToRestore.ToList()) // ToList to avoid modification during iteration
+        {
+            try
+            {
+                if (FileOperationService.RestoreToDesktop(entry))
+                {
+                    DataService.RemoveFile(entry.Id);
+                    Files.Remove(entry);
+                    successCount++;
+                }
+                else
+                {
+                    failCount++;
+                    errors.Add($"{entry.FileName}: 文件已丢失");
+                }
+            }
+            catch (Exception ex)
+            {
+                failCount++;
+                errors.Add($"{entry.FileName}: {ex.Message}");
+            }
+        }
+
+        LoadData();
+        StatusText = $"归还完成: {successCount} 成功";
+
+        if (failCount > 0)
+        {
+            System.Windows.MessageBox.Show(
+                $"归还完成:\n成功: {successCount}\n失败: {failCount}\n\n错误:\n{string.Join("\n", errors.Take(5))}",
                 "结果", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }

@@ -24,6 +24,18 @@ public partial class MainWindow : Window
     private AppSettings _settings = null!;
     private HotkeyService? _hotkeyService;
 
+    // 5-click easter egg trigger
+    private int _titleClickCount;
+    private System.Windows.Threading.DispatcherTimer? _titleClickTimer;
+    private bool _unlockDialogProcessing;
+
+    // Edge snap: track which edge and auto-show on hover
+    private enum SnapEdge { None, Left, Right, Top, Bottom }
+    private SnapEdge _snapEdge = SnapEdge.None;
+    private System.Windows.Threading.DispatcherTimer? _edgeHoverTimer;
+    private bool _edgeMode;
+    private SnapEdge _edgeModeSide = SnapEdge.None;
+
     // ── White theme colors ─────────────────────────────
     private static Color C_Bg = Color.FromRgb(0xF5, 0xF5, 0xF5);
     private static Color C_Surface = Color.FromRgb(0xFF, 0xFF, 0xFF);
@@ -57,9 +69,32 @@ public partial class MainWindow : Window
         RenderFiles();
         ApplyTheme(_settings);
         if (!_hasPosition)
-            CenterWindow();
+            BottomRightWindow();
         else
             RestorePosition();
+        MouseLeave += Window_MouseLeave;
+        StateChanged += (_, _) =>
+        {
+            if (WindowState == WindowState.Maximized)
+            {
+                WindowState = WindowState.Normal;
+                Width = _settings.PanelWidth;
+                Height = _settings.PanelHeight;
+                BottomRightWindow();
+            }
+        };
+    }
+
+    private void Window_MouseLeave(object sender, MouseEventArgs e)
+    {
+        if (!_edgeMode || !_isShown) return;
+        var mousePos = System.Windows.Forms.Cursor.Position;
+        var rect = new System.Drawing.Rectangle((int)Left, (int)Top, (int)Width, (int)Height);
+        if (!rect.Contains(mousePos))
+        {
+            Hide();
+            StartEdgeHoverTimer();
+        }
     }
 
     private void Window_KeyDown(object sender, KeyEventArgs e)
@@ -112,8 +147,46 @@ public partial class MainWindow : Window
         this.Height = s.PanelHeight;
         this.Opacity = s.Opacity;
 
-        MainBorder.Background = new SolidColorBrush(
-            Color.FromArgb((byte)(s.Opacity * 255), C_Bg.R, C_Bg.G, C_Bg.B));
+        if (!string.IsNullOrEmpty(s.BackgroundImagePath) && File.Exists(s.BackgroundImagePath))
+        {
+            try
+            {
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.UriSource = new Uri(s.BackgroundImagePath, UriKind.Absolute);
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                BgImageBorder.Background = new ImageBrush(bitmap) { Stretch = Stretch.UniformToFill };
+                // Make MainBorder and child backgrounds semi-transparent to show the image
+                MainBorder.Background = new SolidColorBrush(Color.FromArgb(40, C_Bg.R, C_Bg.G, C_Bg.B));
+                TitleBarBg.Background = new SolidColorBrush(Color.FromArgb(200, C_Sidebar.R, C_Sidebar.G, C_Sidebar.B));
+                SearchBarBg.Background = new SolidColorBrush(Color.FromArgb(200, C_Bg.R, C_Bg.G, C_Bg.B));
+                SidebarBg.Background = new SolidColorBrush(Color.FromArgb(200, C_Sidebar.R, C_Sidebar.G, C_Sidebar.B));
+                SidebarFooterBg.Background = new SolidColorBrush(Color.FromArgb(200, C_SidebarFooter.R, C_SidebarFooter.G, C_SidebarFooter.B));
+                FileGridBg.Background = new SolidColorBrush(Color.FromArgb(200, C_Bg.R, C_Bg.G, C_Bg.B));
+                StatusBarBg.Background = new SolidColorBrush(Color.FromArgb(200, C_SidebarFooter.R, C_SidebarFooter.G, C_SidebarFooter.B));
+            }
+            catch
+            {
+                BgImageBorder.Background = null;
+                MainBorder.Background = new SolidColorBrush(
+                    Color.FromArgb((byte)(s.Opacity * 255), C_Bg.R, C_Bg.G, C_Bg.B));
+            }
+        }
+        else
+        {
+            BgImageBorder.Background = null;
+            MainBorder.Background = new SolidColorBrush(
+                Color.FromArgb((byte)(s.Opacity * 255), C_Bg.R, C_Bg.G, C_Bg.B));
+            // Restore opaque backgrounds
+            TitleBarBg.Background = new SolidColorBrush(C_Sidebar);
+            SearchBarBg.Background = new SolidColorBrush(C_Bg);
+            SidebarBg.Background = new SolidColorBrush(C_Sidebar);
+            SidebarFooterBg.Background = new SolidColorBrush(C_SidebarFooter);
+            FileGridBg.Background = new SolidColorBrush(C_Bg);
+            StatusBarBg.Background = new SolidColorBrush(C_SidebarFooter);
+        }
 
         // Apply dark mode to title bar via DWM
         try
@@ -191,6 +264,14 @@ public partial class MainWindow : Window
         Top = (sh - Height) / 3;
     }
 
+    private void BottomRightWindow()
+    {
+        var sw = SystemParameters.PrimaryScreenWidth;
+        var sh = SystemParameters.PrimaryScreenHeight;
+        Left = sw - Width - 20;
+        Top = sh - Height - 60;
+    }
+
     private void RestorePosition()
     {
         // Clamp to screen bounds
@@ -204,7 +285,7 @@ public partial class MainWindow : Window
 
     private void TitleBar_MouseDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton == MouseButton.Left)
+        if (e.ChangedButton == MouseButton.Left && e.LeftButton == MouseButtonState.Pressed)
         {
             DragMove();
             CheckEdgeSnap();
@@ -222,12 +303,63 @@ public partial class MainWindow : Window
         bool nearTop = Top <= snapThreshold;
         bool nearBottom = Top + Height >= sh - snapThreshold;
 
-        if (nearLeft || nearRight || nearTop || nearBottom)
+        if (nearLeft) _snapEdge = SnapEdge.Left;
+        else if (nearRight) _snapEdge = SnapEdge.Right;
+        else if (nearTop) _snapEdge = SnapEdge.Top;
+        else if (nearBottom) _snapEdge = SnapEdge.Bottom;
+        else _snapEdge = SnapEdge.None;
+
+        if (_snapEdge != SnapEdge.None)
         {
+            _edgeMode = true;
+            _edgeModeSide = _snapEdge;
             Hide();
+            StartEdgeHoverTimer();
+        }
+        else
+        {
+            _edgeMode = false;
+            _edgeModeSide = SnapEdge.None;
         }
     }
 
+    private void StartEdgeHoverTimer()
+    {
+        _edgeHoverTimer?.Stop();
+        _edgeHoverTimer = new System.Windows.Threading.DispatcherTimer
+        { Interval = TimeSpan.FromMilliseconds(200) };
+        _edgeHoverTimer.Tick += (_, _) => CheckEdgeHover();
+        _edgeHoverTimer.Start();
+    }
+
+    private void CheckEdgeHover()
+    {
+        if (_isShown || _edgeModeSide == SnapEdge.None)
+        {
+            _edgeHoverTimer?.Stop();
+            return;
+        }
+
+        var mousePos = System.Windows.Forms.Cursor.Position;
+        var sw = SystemParameters.PrimaryScreenWidth;
+        var sh = SystemParameters.PrimaryScreenHeight;
+        const int edgeZone = 5; // pixels from edge to trigger
+
+        bool atEdge = _edgeModeSide switch
+        {
+            SnapEdge.Left => mousePos.X <= edgeZone,
+            SnapEdge.Right => mousePos.X >= (int)sw - edgeZone,
+            SnapEdge.Top => mousePos.Y <= edgeZone,
+            SnapEdge.Bottom => mousePos.Y >= (int)sh - edgeZone,
+            _ => false
+        };
+
+        if (atEdge)
+        {
+            _edgeHoverTimer?.Stop();
+            ShowWindow();
+        }
+    }
 
     // ── Acrylic backdrop ──────────────────────────────
 
@@ -265,6 +397,137 @@ public partial class MainWindow : Window
     private void BtnSettings_Click(object sender, RoutedEventArgs e)
     {
         ShowSettingsDialog();
+    }
+
+    private void BtnRestoreSize_Click(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Normal;
+        Width = _settings.PanelWidth;
+        Height = _settings.PanelHeight;
+        BottomRightWindow();
+        _edgeMode = false;
+        _edgeModeSide = SnapEdge.None;
+        _edgeHoverTimer?.Stop();
+    }
+
+    // ── 5-click easter egg ──────────────────────────────
+
+    private void TitleMrQ_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        _titleClickCount++;
+        if (_titleClickCount == 1)
+        {
+            _titleClickTimer?.Stop();
+            _titleClickTimer = new System.Windows.Threading.DispatcherTimer
+            { Interval = TimeSpan.FromSeconds(2) };
+            _titleClickTimer.Tick += (_, _) => { _titleClickCount = 0; _titleClickTimer.Stop(); };
+            _titleClickTimer.Start();
+        }
+        if (_titleClickCount >= 5)
+        {
+            _titleClickCount = 0;
+            _titleClickTimer?.Stop();
+            ShowAiUnlockDialog();
+        }
+    }
+
+    private void ShowAiUnlockDialog()
+    {
+        var dialog = new Window
+        {
+            Title = "访问验证", Width = 360, Height = 220,
+            WindowStyle = WindowStyle.None, AllowsTransparency = true,
+            Background = Brushes.Transparent,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            Topmost = true
+        };
+        var border = new Border
+        {
+            CornerRadius = new CornerRadius(12),
+            Background = new SolidColorBrush(C_DialogBg),
+            BorderBrush = new SolidColorBrush(C_Border),
+            BorderThickness = new Thickness(1),
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            { BlurRadius = 20, ShadowDepth = 2, Opacity = 0.12, Color = Colors.Black }
+        };
+        var stack = new StackPanel { Margin = new Thickness(20) };
+        stack.Children.Add(new TextBlock
+        {
+            Text = "🔑 输入访问码", Foreground = new SolidColorBrush(C_TextPrimary),
+            FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
+            FontSize = 16, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 12)
+        });
+        var codeTb = new TextBox
+        {
+            Background = new SolidColorBrush(C_InputBg),
+            Foreground = new SolidColorBrush(C_TextPrimary),
+            CaretBrush = new SolidColorBrush(C_Accent),
+            BorderThickness = new Thickness(0),
+            FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
+            FontSize = 14, Padding = new Thickness(8, 6, 8, 6),
+            Margin = new Thickness(0, 0, 0, 16)
+        };
+        stack.Children.Add(codeTb);
+
+        var btnPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        var cancelBtn = new Button
+        {
+            Content = "取消",
+            FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
+            FontSize = 12, Padding = new Thickness(14, 6, 14, 6),
+            Foreground = new SolidColorBrush(C_TextSecondary),
+            Margin = new Thickness(0, 0, 8, 0)
+        };
+        cancelBtn.Click += (_, _) => dialog.Close();
+        btnPanel.Children.Add(cancelBtn);
+
+        var confirmBtn = new Button
+        {
+            Content = "确认",
+            FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
+            FontSize = 12, Padding = new Thickness(14, 6, 14, 6),
+            Background = new SolidColorBrush(C_Accent),
+            Foreground = Brushes.White,
+            BorderThickness = new Thickness(0)
+        };
+        confirmBtn.Click += (_, _) =>
+        {
+            if (_unlockDialogProcessing) return;
+            _unlockDialogProcessing = true;
+            try
+            {
+                if (codeTb.Text == "Mr.Q")
+                {
+                    var s = SettingsService.Current;
+                    s.AiMode = true;
+                    SettingsService.Save(s);
+                    _settings = s;
+                    System.Windows.MessageBox.Show("AI 智能分类已开启！\n下次收纳桌面时将使用 AI 分析文件名并自动分类。",
+                        "成功", MessageBoxButton.OK, MessageBoxImage.Information);
+                    dialog.Close();
+                }
+                else
+                {
+                    System.Windows.MessageBox.Show("访问码错误", "提示",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+            finally
+            {
+                _unlockDialogProcessing = false;
+            }
+        };
+        btnPanel.Children.Add(confirmBtn);
+        stack.Children.Add(btnPanel);
+        border.Child = stack;
+        dialog.Content = border;
+        dialog.ShowDialog();
     }
 
     // ── Search ────────────────────────────────────────
@@ -498,7 +761,7 @@ public partial class MainWindow : Window
     {
         var card = new Border
         {
-            Width = 110, Height = 90,
+            Width = 140, Height = 110,
             CornerRadius = new CornerRadius(8),
             Background = new SolidColorBrush(C_Surface),
             Margin = new Thickness(4),
@@ -512,45 +775,71 @@ public partial class MainWindow : Window
         var catColor = _vm.Categories.FirstOrDefault(c => c.Id == entry.CategoryId)?.Color ?? "#0078D4";
         var iconBorder = new Border
         {
-            Width = 32, Height = 32,
-            CornerRadius = new CornerRadius(6),
+            Width = 56, Height = 56,
+            CornerRadius = new CornerRadius(8),
             Background = ParseColorBrush(catColor),
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 8, 0, 4)
         };
-        var realIcon = GetFileIcon(entry.StoredPath);
-        if (realIcon != null)
+
+        if (entry.IsDirectory)
         {
-            var img = new Image
-            {
-                Source = realIcon,
-                Width = 24, Height = 24,
-                Stretch = Stretch.Uniform,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
-            iconBorder.Background = Brushes.Transparent;
-            iconBorder.Child = img;
-        }
-        else
-        {
+            // Folder icon
             var iconText = new TextBlock
             {
-                Text = GetFileTypeIcon(entry.FileName),
+                Text = "", // Segoe MDL2 folder icon
                 Foreground = Brushes.White,
                 FontFamily = new FontFamily("Segoe MDL2 Assets"),
-                FontSize = 16,
+                FontSize = 30,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
             iconBorder.Child = iconText;
         }
+        else
+        {
+            var realIcon = GetFileIcon(entry.StoredPath);
+            if (realIcon != null)
+            {
+                var img = new Image
+                {
+                    Source = realIcon,
+                    Width = 42, Height = 42,
+                    Stretch = Stretch.Uniform,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
+                iconBorder.Background = Brushes.Transparent;
+                iconBorder.Child = img;
+            }
+            else
+            {
+                var iconText = new TextBlock
+                {
+                    Text = GetFileTypeIcon(entry.FileName),
+                    Foreground = Brushes.White,
+                    FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                    FontSize = 28,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                iconBorder.Child = iconText;
+            }
+        }
         stack.Children.Add(iconBorder);
 
-        // Display name without extension
-        var nameWithoutExt = Path.GetFileNameWithoutExtension(entry.FileName);
-        var displayName = nameWithoutExt.Length > 14 ? nameWithoutExt[..11] + "..." : nameWithoutExt;
+        // Display name: for folders show full name, for files strip extension
+        string displayName;
+        if (entry.IsDirectory)
+        {
+            displayName = entry.FileName.Length > 18 ? entry.FileName[..15] + "..." : entry.FileName;
+        }
+        else
+        {
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(entry.FileName);
+            displayName = nameWithoutExt.Length > 18 ? nameWithoutExt[..15] + "..." : nameWithoutExt;
+        }
         var nameLabel = new TextBlock
         {
             Text = displayName,
@@ -789,9 +1078,16 @@ public partial class MainWindow : Window
 
     // ── Collect Desktop ────────────────────────────────
 
-    private void BtnCollectDesktop_Click(object sender, RoutedEventArgs e)
+    private async void BtnCollectDesktop_Click(object sender, RoutedEventArgs e)
     {
-        _vm.CollectDesktop();
+        await _vm.CollectDesktopAsync();
+        RenderCategories();
+        RenderFiles();
+    }
+
+    private void BtnRestoreDesktop_Click(object sender, RoutedEventArgs e)
+    {
+        _vm.RestoreToDesktop();
         RenderCategories();
         RenderFiles();
     }
@@ -1046,6 +1342,62 @@ public partial class MainWindow : Window
         opacityPanel.Children.Add(opacityLabel);
         stack.Children.Add(opacityPanel);
 
+        // Background image
+        stack.Children.Add(SettingLabel("背景图片"));
+        string pendingBgImagePath = s.BackgroundImagePath;
+        var bgPanel = new DockPanel { Margin = new Thickness(0, 0, 0, 12) };
+        var bgPathTb = new TextBox
+        {
+            Text = string.IsNullOrEmpty(s.BackgroundImagePath) ? "（默认毛玻璃）" : Path.GetFileName(s.BackgroundImagePath),
+            Background = new SolidColorBrush(C_InputBg),
+            Foreground = new SolidColorBrush(C_TextSecondary),
+            BorderThickness = new Thickness(0),
+            FontFamily = new FontFamily("Microsoft YaHei UI"), FontSize = 12,
+            Padding = new Thickness(8, 6, 8, 6),
+            IsReadOnly = true
+        };
+        var bgBrowseBtn = new Button
+        {
+            Content = "选择图片",
+            Style = (Style)FindResource("IconButton"),
+            FontFamily = new FontFamily("Microsoft YaHei UI"), FontSize = 11,
+            Foreground = new SolidColorBrush(C_Accent),
+            Padding = new Thickness(8, 6, 8, 6)
+        };
+        bgBrowseBtn.Click += (_, _) =>
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "图片文件|*.jpg;*.jpeg;*.png;*.bmp;*.webp",
+                Title = "选择背景图片"
+            };
+            if (dlg.ShowDialog() == true)
+            {
+                pendingBgImagePath = dlg.FileName;
+                bgPathTb.Text = Path.GetFileName(dlg.FileName);
+            }
+        };
+        var bgClearBtn = new Button
+        {
+            Content = "清除",
+            Style = (Style)FindResource("IconButton"),
+            FontFamily = new FontFamily("Microsoft YaHei UI"), FontSize = 11,
+            Foreground = new SolidColorBrush(C_TextSecondary),
+            Padding = new Thickness(8, 6, 8, 6),
+            Margin = new Thickness(4, 0, 0, 0)
+        };
+        bgClearBtn.Click += (_, _) =>
+        {
+            pendingBgImagePath = "";
+            bgPathTb.Text = "（默认毛玻璃）";
+        };
+        bgPanel.Children.Add(bgClearBtn);
+        DockPanel.SetDock(bgClearBtn, Dock.Right);
+        bgPanel.Children.Add(bgBrowseBtn);
+        DockPanel.SetDock(bgBrowseBtn, Dock.Right);
+        bgPanel.Children.Add(bgPathTb);
+        stack.Children.Add(bgPanel);
+
         // ── Behavior Section ──
         stack.Children.Add(SectionHeader("行为"));
 
@@ -1176,6 +1528,79 @@ public partial class MainWindow : Window
         heightPanel.Children.Add(heightLabel);
         stack.Children.Add(heightPanel);
 
+        // ── AI Section (only visible after Mr.Q unlock) ──
+        // Declare pending variables outside the if block so save/restore buttons can access them
+        string pendingOpenAiKey = s.OpenAiKey;
+        string pendingAiBaseUrl = s.AiBaseUrl;
+        string pendingAiModel = s.AiModel;
+        bool pendingAiMode = s.AiMode;
+        TextBox? aiKeyTb = null;
+        TextBox? aiBaseUrlTb = null;
+        TextBox? aiModelTb = null;
+        CheckBox? aiModeCb = null;
+
+        if (_settings.AiMode)
+        {
+            stack.Children.Add(SectionHeader("高级"));
+
+            stack.Children.Add(SettingLabel("AI API Key"));
+            aiKeyTb = new TextBox
+            {
+                Text = s.OpenAiKey,
+                Background = new SolidColorBrush(C_InputBg),
+                Foreground = new SolidColorBrush(C_TextSecondary),
+                CaretBrush = new SolidColorBrush(C_Accent),
+                BorderThickness = new Thickness(0),
+                FontFamily = new FontFamily("Microsoft YaHei UI"), FontSize = 12,
+                Padding = new Thickness(8, 6, 8, 6),
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            aiKeyTb.TextChanged += (_, _) => pendingOpenAiKey = aiKeyTb.Text;
+            stack.Children.Add(aiKeyTb);
+
+            stack.Children.Add(SettingLabel("AI Base URL"));
+            aiBaseUrlTb = new TextBox
+            {
+                Text = s.AiBaseUrl,
+                Background = new SolidColorBrush(C_InputBg),
+                Foreground = new SolidColorBrush(C_TextSecondary),
+                CaretBrush = new SolidColorBrush(C_Accent),
+                BorderThickness = new Thickness(0),
+                FontFamily = new FontFamily("Microsoft YaHei UI"), FontSize = 12,
+                Padding = new Thickness(8, 6, 8, 6),
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            aiBaseUrlTb.TextChanged += (_, _) => pendingAiBaseUrl = aiBaseUrlTb.Text;
+            stack.Children.Add(aiBaseUrlTb);
+
+            stack.Children.Add(SettingLabel("AI Model"));
+            aiModelTb = new TextBox
+            {
+                Text = s.AiModel,
+                Background = new SolidColorBrush(C_InputBg),
+                Foreground = new SolidColorBrush(C_TextSecondary),
+                CaretBrush = new SolidColorBrush(C_Accent),
+                BorderThickness = new Thickness(0),
+                FontFamily = new FontFamily("Microsoft YaHei UI"), FontSize = 12,
+                Padding = new Thickness(8, 6, 8, 6),
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            aiModelTb.TextChanged += (_, _) => pendingAiModel = aiModelTb.Text;
+            stack.Children.Add(aiModelTb);
+
+            aiModeCb = new CheckBox
+            {
+                Content = "AI 智能分类",
+                IsChecked = s.AiMode,
+                Foreground = new SolidColorBrush(C_TextPrimary),
+                FontFamily = new FontFamily("Microsoft YaHei UI"), FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+            aiModeCb.Checked += (_, _) => pendingAiMode = true;
+            aiModeCb.Unchecked += (_, _) => pendingAiMode = false;
+            stack.Children.Add(aiModeCb);
+        }
+
         // ── Buttons ──
         var btnPanel = DialogButtonPanel(
             ("恢复默认", () =>
@@ -1197,6 +1622,12 @@ public partial class MainWindow : Window
                     child.BorderBrush = child.Tag.ToString() == def.AccentColor
                         ? new SolidColorBrush(C_TextPrimary) : new SolidColorBrush(Colors.Transparent);
                 selectedAccent = def.AccentColor;
+                if (aiKeyTb != null) aiKeyTb.Text = "";
+                if (aiBaseUrlTb != null) aiBaseUrlTb.Text = "";
+                if (aiModelTb != null) aiModelTb.Text = "";
+                if (aiModeCb != null) aiModeCb.IsChecked = false;
+                pendingBgImagePath = "";
+                bgPathTb.Text = "（默认毛玻璃）";
             }),
             ("取消", () => dialog.Close()),
             ("保存", () =>
@@ -1211,7 +1642,12 @@ public partial class MainWindow : Window
                     AutoStart = autoStartCb.IsChecked ?? false,
                     StoragePath = pathTb.Text.Trim(),
                     PanelWidth = Math.Round(widthSlider.Value),
-                    PanelHeight = Math.Round(heightSlider.Value)
+                    PanelHeight = Math.Round(heightSlider.Value),
+                    OpenAiKey = pendingOpenAiKey,
+                    AiBaseUrl = pendingAiBaseUrl,
+                    AiModel = pendingAiModel,
+                    AiMode = pendingAiMode,
+                    BackgroundImagePath = pendingBgImagePath
                 };
 
                 // Migrate files if storage path changed
@@ -1366,7 +1802,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var flags = Native.Win32.SHGFI_SMALLICON | Native.Win32.SHGFI_ICON;
+            var flags = Native.Win32.SHGFI_LARGEICON | Native.Win32.SHGFI_ICON;
             var shfi = new Native.Win32.SHFILEINFO();
             var cbFileInfo = (uint)System.Runtime.InteropServices.Marshal.SizeOf(shfi);
 

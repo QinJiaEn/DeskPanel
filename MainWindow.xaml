@@ -29,13 +29,17 @@
                 <RowDefinition Height="32"/>
             </Grid.RowDefinitions>
 
+            <!-- 背景图片层（在所有内容下面） -->
+            <Border x:Name="BgImageBorder" CornerRadius="14" Panel.ZIndex="-1" Grid.RowSpan="4" />
+
             <!-- ===== Row 0: 标题栏 ===== -->
-            <Border Grid.Row="0" Background="#FAFAFA" CornerRadius="14,14,0,0"
+            <Border x:Name="TitleBarBg" Grid.Row="0" Background="#FAFAFA" CornerRadius="14,14,0,0"
                     MouseLeftButtonDown="TitleBar_MouseDown">
                 <Grid>
                     <TextBlock Text="DeskPanel · Mr.Q" Foreground="#0078D4"
                                FontFamily="Microsoft YaHei UI" FontSize="13" FontWeight="SemiBold"
-                               VerticalAlignment="Center" Margin="16,0,0,0"/>
+                               VerticalAlignment="Center" Margin="16,0,0,0"
+                               Cursor="Hand" MouseLeftButtonDown="TitleMrQ_Click"/>
                     <TextBlock Text="Alt+` 呼出 · Esc 隐藏 · 拖拽收纳"
                                Foreground="#AAAAAA" FontFamily="Microsoft YaHei UI" FontSize="10"
                                VerticalAlignment="Center" Margin="170,0,0,0"/>
@@ -44,10 +48,28 @@
                                 Content="收纳桌面" Style="{StaticResource AccentButton}"
                                 FontSize="11" Padding="10,4" Margin="0,0,8,0"
                                 Click="BtnCollectDesktop_Click" ToolTip="一键收纳桌面所有文件"/>
+                        <Button x:Name="BtnRestoreDesktop"
+                                Content="归还桌面" Style="{StaticResource IconButton}"
+                                FontFamily="Microsoft YaHei UI" FontSize="11" Padding="10,4" Margin="0,0,8,0"
+                                Click="BtnRestoreDesktop_Click" ToolTip="将收纳的文件归还到桌面"/>
                         <Button x:Name="BtnSettings"
                                 Content="&#xE713;" Style="{StaticResource IconButton}"
                                 Width="32" Height="32" FontSize="12"
                                 Click="BtnSettings_Click" ToolTip="设置"/>
+                        <Button x:Name="BtnRestoreSize"
+                                Content="&#xE949;" Width="32" Height="32" FontSize="12"
+                                Click="BtnRestoreSize_Click" ToolTip="恢复默认大小">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=WindowState}" Value="Maximized">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
                         <Button Content="&#xE10A;" Style="{StaticResource IconButton}"
                                 Width="32" Height="32" FontSize="12"
                                 Click="BtnClose_Click" ToolTip="关闭面板"/>
@@ -56,7 +78,7 @@
             </Border>
 
             <!-- ===== Row 1: 搜索栏 ===== -->
-            <Border Grid.Row="1" Background="#F5F5F5" BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
+            <Border x:Name="SearchBarBg" Grid.Row="1" Background="#F5F5F5" BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
                 <Grid Margin="16,0">
                     <TextBox x:Name="TxtSearch" Tag="搜索文件..."
                              Background="#FFFFFF" Foreground="#1A1A1A"
@@ -76,6 +98,7 @@
                                IsHitTestVisible="False">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding ElementName=TxtSearch,Path=Text}" Value="">
                                         <Setter Property="Visibility" Value="Visible"/>
@@ -99,7 +122,7 @@
                 </Grid.ColumnDefinitions>
 
                 <!-- 分类侧边栏 -->
-                <Border Grid.Column="0" Background="#FAFAFA">
+                <Border x:Name="SidebarBg" Grid.Column="0" Background="#FAFAFA">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="*"/>
@@ -111,7 +134,7 @@
                         </ScrollViewer>
 
                         <!-- 底部分类操作 -->
-                        <Border Grid.Row="1" BorderBrush="#E0E0E0" BorderThickness="0,1,0,0"
+                        <Border x:Name="SidebarFooterBg" Grid.Row="1" BorderBrush="#E0E0E0" BorderThickness="0,1,0,0"
                                 Padding="8" Background="#F0F0F0">
                             <Button Content="+ 添加分类" Style="{StaticResource IconButton}"
                                     FontFamily="Microsoft YaHei UI" FontSize="11"
@@ -125,7 +148,7 @@
                 <Border Grid.Column="1" Background="#E0E0E0"/>
 
                 <!-- 文件网格区域（支持拖放） -->
-                <Border Grid.Column="2" Background="#F5F5F5"
+                <Border x:Name="FileGridBg" Grid.Column="2" Background="#F5F5F5"
                         AllowDrop="True"
                         DragEnter="FileGrid_DragEnter"
                         DragOver="FileGrid_DragOver"
@@ -174,7 +197,7 @@
             </Grid>
 
             <!-- ===== Row 3: 状态栏 ===== -->
-            <Border Grid.Row="3" Background="#F0F0F0" CornerRadius="0,0,14,14"
+            <Border x:Name="StatusBarBg" Grid.Row="3" Background="#F0F0F0" CornerRadius="0,0,14,14"
                     BorderBrush="#E0E0E0" BorderThickness="0,1,0,0">
                 <Grid Margin="16,0">
                     <TextBlock x:Name="TbStatus" Text="共 0 个文件"
